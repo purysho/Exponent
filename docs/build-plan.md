@@ -2,6 +2,12 @@
 
 How I would build [`architecture.md`](architecture.md), in order of risk. Nothing here is built yet. This is the proposal to approve or redirect.
 
+## Status (2026-10-05)
+
+- **M0a:** passed under gate v2, after gate v1 failed (see [`m0a-results.md`](m0a-results.md)). Cont–Das Table 1, Lumor's identifiability map, and an inferred construction for Cont–Das Table 3 (validated on 16 held-out numbers) all reproduce.
+- **M0b:** TWAP labels are recoverable from public data at volume. The impact exponent is undetermined (see [`m0b-results.md`](m0b-results.md)).
+- **Next:** choose paper 1's track, then M1.
+
 ## Principle
 
 The first thing built is the thing most likely to prove the project wrong. Two questions qualify, one per track, and both are cheap to answer:
