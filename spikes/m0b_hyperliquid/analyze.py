@@ -19,6 +19,7 @@ import math
 import time
 import urllib.request
 from collections import Counter, defaultdict
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -81,8 +82,16 @@ def child_orders(tape: list[dict], users: set[str]) -> list[dict]:
         k = (u, t["coin"], t["side"], t["time"])
         c = agg.setdefault(
             k,
-            {"user": u, "coin": t["coin"], "side": t["side"], "time": t["time"], "sz": 0.0,
-             "ntl": 0.0, "tids": [], "zero": t["hash"] == ZERO},
+            {
+                "user": u,
+                "coin": t["coin"],
+                "side": t["side"],
+                "time": t["time"],
+                "sz": 0.0,
+                "ntl": 0.0,
+                "tids": [],
+                "zero": t["hash"] == ZERO,
+            },
         )
         sz, px = float(t["sz"]), float(t["px"])
         c["sz"] += sz
@@ -110,7 +119,10 @@ def reconstruct(children: list[dict], gap_min: float) -> list[list[int]]:
 
 
 def pair_scores(groups: list[list[int]], label: dict[int, int]) -> tuple[float, float]:
-    """Pairwise precision/recall of reconstructed groups against TWAP parents (labelled children only)."""
+    """Pairwise precision/recall of reconstructed groups against TWAP parents.
+
+    Only labelled (TWAP) children enter the pairs.
+    """
     same_true = Counter(label.values())
     true_pairs = sum(n * (n - 1) // 2 for n in same_true.values())
     found_pairs = correct = 0
@@ -144,7 +156,7 @@ def impact_fit(points: list[tuple[float, float]], n_bins: int = 8) -> tuple[floa
     y = np.array([p[1] for p in points])
     edges = np.quantile(x, np.linspace(0, 1, n_bins + 1))
     bx, by = [], []
-    for lo, hi in zip(edges[:-1], edges[1:], strict=True):
+    for lo, hi in pairwise(edges):
         m = (x >= lo) & (x <= hi)
         if m.sum() >= 5 and y[m].mean() > 0:
             bx.append(x[m].mean())
@@ -164,7 +176,10 @@ def main() -> None:
 
     zero = [t for t in tape if t["hash"] == ZERO]
     zero_users = sorted({taker(t) for t in zero})
-    print(f"zero-hash trades: {len(zero):,} ({len(zero) / len(tape):.1%}), taker addresses: {len(zero_users)}")
+    print(
+        f"zero-hash trades: {len(zero):,} ({len(zero) / len(tape):.1%}), "
+        f"taker addresses: {len(zero_users)}"
+    )
 
     # ── labels from the public per-address API ────────────────────────────────
     slice_tid: dict[int, int] = {}
@@ -181,8 +196,10 @@ def main() -> None:
         for h in cached("twapHistory", u):
             if h.get("twapId") is not None:
                 parents[h["twapId"]] = h
-    print(f"API: {len(slice_tid):,} labelled slice fills, {len(parents):,} parent records, "
-          f"{truncated} addresses at the 2000-fill cap")
+    print(
+        f"API: {len(slice_tid):,} labelled slice fills, {len(parents):,} parent records, "
+        f"{truncated} addresses at the 2000-fill cap"
+    )
 
     # ── is the zero hash a TWAP marker? ───────────────────────────────────────
     covered = [t for t in zero if t["time"] >= cover_from[taker(t)]]
@@ -191,9 +208,14 @@ def main() -> None:
     in_window = [tid for tid in slice_tid if tid in tape_tids]
     nonzero_slices = sum(tape_tids[tid]["hash"] != ZERO for tid in in_window)
     print("\n[marker]")
-    print(f"  zero-hash trades within each address's API coverage: {len(covered):,}; "
-          f"labelled as TWAP slices: {hit:,} ({hit / max(len(covered), 1):.1%})")
-    print(f"  labelled slices present in the tape: {len(in_window):,}; with a non-zero hash: {nonzero_slices}")
+    print(
+        f"  zero-hash trades within each address's API coverage: {len(covered):,}; "
+        f"labelled as TWAP slices: {hit:,} ({hit / max(len(covered), 1):.1%})"
+    )
+    print(
+        f"  labelled slices present in the tape: {len(in_window):,}; "
+        f"with a non-zero hash: {nonzero_slices}"
+    )
 
     # ── reconstruction, labels hidden ────────────────────────────────────────
     children = child_orders(tape, set(zero_users))
@@ -206,8 +228,10 @@ def main() -> None:
     multi = [k for k, n in twap_ids_seen.items() if n >= MIN_CHILDREN]
     print("\n[parents in window]")
     print(f"  child orders of these addresses: {len(children):,}; TWAP-labelled: {len(label):,}")
-    print(f"  TWAP parents with ≥{MIN_CHILDREN} slices in window: {len(multi)} "
-          f"→ ≈ {len(multi) / hours * 24 * 30:,.0f} per month at this rate (top {len(coins)} coins)")
+    print(
+        f"  TWAP parents with ≥{MIN_CHILDREN} slices in window: {len(multi)} "
+        f"→ ≈ {len(multi) / hours * 24 * 30:,.0f} per month at this rate (top {len(coins)} coins)"
+    )
 
     # concurrent same-side parents per (user, coin, side): merging is unavoidable for any heuristic
     spans = defaultdict(list)
@@ -215,14 +239,16 @@ def main() -> None:
         c = children[i]
         spans[(c["user"], c["coin"], c["side"], tid)].append(c["time"])
     by_stream = defaultdict(list)
-    for (u, coin, side, tid), ts in spans.items():
+    for (u, coin, side, _tid), ts in spans.items():
         by_stream[(u, coin, side)].append((min(ts), max(ts)))
     overlapping = 0
     for iv in by_stream.values():
         iv.sort()
-        overlapping += sum(b[0] <= a[1] for a, b in zip(iv, iv[1:], strict=False))
-    print(f"  same-address, same-side TWAP parents overlapping in time: {overlapping} "
-          f"(of {len(spans)} parent-streams)")
+        overlapping += sum(b[0] <= a[1] for a, b in pairwise(iv))
+    print(
+        f"  same-address, same-side TWAP parents overlapping in time: {overlapping} "
+        f"(of {len(spans)} parent-streams)"
+    )
 
     print("\n[blind reconstruction vs TWAP labels]  (pairwise, labelled children only)")
     recs = {}
@@ -230,9 +256,14 @@ def main() -> None:
         groups = reconstruct(children, g)
         recs[g] = groups
         prec, rec = pair_scores(groups, label)
-        mixed = sum(any(i in label for i in grp) and any(i not in label for i in grp) for grp in groups)
-        print(f"  gap ≤ {g:>4.0f} min: {len(groups):>5} metaorders; precision {prec:.3f}, recall {rec:.3f}; "
-              f"{mixed} mix TWAP and non-TWAP children")
+        mixed = sum(
+            any(i in label for i in grp) and any(i not in label for i in grp) for grp in groups
+        )
+        print(
+            f"  gap ≤ {g:>4.0f} min: {len(groups):>5} metaorders; "
+            f"precision {prec:.3f}, recall {rec:.3f}; "
+            f"{mixed} mix TWAP and non-TWAP children"
+        )
 
     # ── naive impact curves ───────────────────────────────────────────────────
     series = {}
@@ -240,7 +271,9 @@ def main() -> None:
         tc = [t for t in tape if t["coin"] == coin]
         series[coin] = (np.array([t["time"] for t in tc]), np.array([float(t["px"]) for t in tc]))
     ctx = post({"type": "metaAndAssetCtxs"})
-    vol_day = {u["name"]: float(c["dayNtlVlm"]) for u, c in zip(ctx[0]["universe"], ctx[1], strict=True)}
+    vol_day = {
+        u["name"]: float(c["dayNtlVlm"]) for u, c in zip(ctx[0]["universe"], ctx[1], strict=True)
+    }
     sigma_day = {}
     for coin in coins:
         ts, px = series[coin]
@@ -264,13 +297,22 @@ def main() -> None:
     twap_groups = defaultdict(list)
     for i, tid in label.items():
         twap_groups[tid].append(i)
-    twap_pts = [p for g in twap_groups.values() if len(g) >= MIN_CHILDREN and (p := point(sorted(g)))]
-    print("\n[naive impact: I/σ_D vs (Q/V_D)^δ, log-binned; a few hours of data, so indicative only]")
+    twap_pts = [
+        p for g in twap_groups.values() if len(g) >= MIN_CHILDREN and (p := point(sorted(g)))
+    ]
+    print(
+        "\n[naive impact: I/σ_D vs (Q/V_D)^δ, log-binned; a few hours of data, so indicative only]"
+    )
     for name, pts in [("TWAP parents (labels)", twap_pts)] + [
-        (f"reconstructed, gap ≤ {g:.0f} min", [p for grp in recs[g] if (p := point(grp))]) for g in GAPS_MIN
+        (f"reconstructed, gap ≤ {g:.0f} min", [p for grp in recs[g] if (p := point(grp))])
+        for g in GAPS_MIN
     ]:
         d, _, n = impact_fit(pts)
-        print(f"  {name:<32} n={n:>5}  δ̂ = {d:.2f}" if not math.isnan(d) else f"  {name:<32} n={n:>5}  δ̂ = n/a")
+        print(
+            f"  {name:<32} n={n:>5}  δ̂ = {d:.2f}"
+            if not math.isnan(d)
+            else f"  {name:<32} n={n:>5}  δ̂ = n/a"
+        )
 
     # how far intended parent size differs from what executed in-window
     ratios = []
@@ -280,7 +322,10 @@ def main() -> None:
             ratios.append(sum(children[i]["sz"] for i in g) / float(h["state"]["sz"]))
     if ratios:
         q = np.quantile(ratios, [0.1, 0.5, 0.9])
-        print(f"\n[parent size] executed-in-window / intended size: p10 {q[0]:.2f}, median {q[1]:.2f}, p90 {q[2]:.2f}")
+        print(
+            "\n[parent size] executed-in-window / intended size: "
+            f"p10 {q[0]:.2f}, median {q[1]:.2f}, p90 {q[2]:.2f}"
+        )
 
 
 if __name__ == "__main__":

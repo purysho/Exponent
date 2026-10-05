@@ -25,9 +25,13 @@ def ou_sv_log_price(n: int, T: float, rng: np.random.Generator) -> np.ndarray:
     """OU-SV (σ₀ = γ = θ = 1) log-price on n fine steps; same scheme as vol_models.ou_sv."""
     dt = T / n
     a = np.exp(-dt)
-    y = np.concatenate([[0.0], lfilter([1.0], [1.0, -a], rng.standard_normal(n) * np.sqrt((1 - a * a) / 2))])
+    y = np.concatenate(
+        [[0.0], lfilter([1.0], [1.0, -a], rng.standard_normal(n) * np.sqrt((1 - a * a) / 2))]
+    )
     v = np.exp(y[:-1])
-    return np.concatenate([[0.0], np.cumsum(v * np.sqrt(dt) * rng.standard_normal(n) - 0.5 * v * v * dt)])
+    return np.concatenate(
+        [[0.0], np.cumsum(v * np.sqrt(dt) * rng.standard_normal(n) - 0.5 * v * v * dt)]
+    )
 
 
 def rv_rolling_strided(x: np.ndarray, window: int, stride: int, n_out: int) -> np.ndarray:
@@ -67,7 +71,9 @@ def main() -> None:
     for p in CANDIDATES[args.family]:
         name = f"{args.family}-" + "-".join(f"{k}{v:g}" for k, v in p.items())
         with ProcessPoolExecutor(4) as pool:
-            vals = [v for v in pool.map(one, [(name, p, r) for r in range(args.paths)]) if v is not None]
+            vals = [
+                v for v in pool.map(one, [(name, p, r) for r in range(args.paths)]) if v is not None
+            ]
         a = np.array(vals)
         print(f"{name}: n={a.size}/{args.paths} mean {a.mean():.3f} sd {a.std():.3f}", flush=True)
 
