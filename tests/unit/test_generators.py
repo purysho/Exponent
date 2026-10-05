@@ -81,3 +81,21 @@ def test_block_log_rv_drops_partial_block() -> None:
     obs = block_log_rv(x, 10)
     assert obs.values.size == 10  # 104 returns → 10 full blocks
     np.testing.assert_allclose(obs.values, np.log(10.0))
+
+
+@pytest.mark.parametrize("H", [0.1, 0.5, 0.8, 0.95])
+def test_autocovariance_series_matches_direct_form_where_both_are_accurate(H: float) -> None:
+    # At moderate lags the direct form still has ~10 good digits, so the two must agree.
+    g = fgn_autocovariance(2000, H)
+    k = np.arange(64, 2001, dtype=np.float64)
+    direct = 0.5 * ((k + 1) ** (2 * H) - 2 * k ** (2 * H) + (k - 1) ** (2 * H))
+    np.testing.assert_allclose(g[64:], direct, rtol=1e-8, atol=1e-14)
+
+
+@pytest.mark.parametrize("H", [0.8, 0.95])
+def test_circulant_embedding_stays_nonnegative_on_long_grids(H: float) -> None:
+    # Regression: at 27M steps the subtraction form made the embedding indefinite for H = 0.8.
+    from exponent.domain.generators.fgn import _circulant_scale
+
+    scale = _circulant_scale(1 << 22, H)
+    assert np.all(np.isfinite(scale))

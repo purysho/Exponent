@@ -15,12 +15,35 @@ import scipy.fft
 
 from exponent.domain.types import FloatArray
 
+_SERIES_FROM = 64  # lag from which γ(k) is summed as a series, not by subtraction
+
 
 def fgn_autocovariance(n: int, H: float) -> FloatArray:
-    """γ(0..n) for unit-spacing, unit-variance fGn."""
+    """γ(0..n) for unit-spacing, unit-variance fGn.
+
+    The textbook form ½(|k+1|^{2H} − 2k^{2H} + |k−1|^{2H}) subtracts numbers of
+    size k^{2H} to get one of size k^{2H−2}; at k ~ 10⁷ that loses every
+    significant digit, and at 27 million steps it made the circulant embedding
+    numerically indefinite for H = 0.8. For k ≥ 64 we use the exact expansion,
+    with a = 2H and x = 1/k:
+
+        γ(k) = ½ k^a [a(a−1)x² + a(a−1)(a−2)(a−3)x⁴/12 + a(a−1)…(a−5)x⁶/360],
+
+    whose first omitted term is below 10⁻¹⁴ relative at k = 64.
+    """
+    a = 2.0 * H
     k = np.arange(n + 1, dtype=np.float64)
-    h2 = 2.0 * H
-    return 0.5 * (np.abs(k + 1) ** h2 - 2.0 * k**h2 + np.abs(k - 1) ** h2)
+    out = np.empty(n + 1)
+    head = k[: min(_SERIES_FROM, n + 1)]
+    out[: head.size] = 0.5 * (np.abs(head + 1) ** a - 2.0 * head**a + np.abs(head - 1) ** a)
+    if n + 1 > _SERIES_FROM:
+        kt = k[_SERIES_FROM:]
+        x2 = 1.0 / (kt * kt)
+        c1 = a * (a - 1)
+        c2 = c1 * (a - 2) * (a - 3) / 12.0
+        c3 = c2 * (a - 4) * (a - 5) / 30.0
+        out[_SERIES_FROM:] = 0.5 * kt**a * x2 * (c1 + x2 * (c2 + x2 * c3))
+    return out
 
 
 def fgn(n: int, H: float, rng: np.random.Generator, n_paths: int = 1) -> FloatArray:

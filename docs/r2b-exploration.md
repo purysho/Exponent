@@ -39,3 +39,9 @@ Candidate #9 (1 000-return blocks, T = 1) is the same signal-to-noise trade-off 
 | σ series | σ at the L + 1 block boundaries |
 | Estimator | normalised p-variation, K as stated per example (300 for Example 7, 500 for Example 5) |
 | Models | the paper's (γ = θ = σ₀ = 1), with time running over [0, 4] |
+
+## Validation attempts
+
+| Attempt | Code | Outcome |
+| --- | --- | --- |
+| 1 | `bcb645f` | **Crashed before producing any numbers.** fGn's autocovariance lost all precision to cancellation at 27 million steps, which made the circulant embedding numerically indefinite at H = 0.8 (532 341 negative eigenvalues). Fixed with the exact large-lag series, and a regression test was added. No validation output was seen. The locked construction is unchanged. |
