@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+results/*
+!results/.gitkeep
+!results/m0a/
+results/m0a/*.parquet
