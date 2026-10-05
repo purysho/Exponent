@@ -161,3 +161,66 @@ def ou_sv_blocks(
         ends[start + 1 : start + nb + 1] = sigma0 * np.exp(y[sub - 1 :: sub])
         y_last = float(y[-1])
     return BlockObservedPath(ends, means, rv)
+
+
+def _observe_blocks(
+    vol_left: FloatArray, dt: float, sub: int, rng: np.random.Generator
+) -> tuple[FloatArray, FloatArray]:
+    """Block RV and block-mean σ from σ at each fine step's left endpoint."""
+    nb = vol_left.size // sub
+    r = vol_left * np.sqrt(dt) * rng.standard_normal(vol_left.size) - 0.5 * vol_left**2 * dt
+    rv = np.sqrt(np.sum((r * r).reshape(nb, sub), axis=1))
+    return rv, vol_left.reshape(nb, sub).mean(axis=1)
+
+
+def fou_blocks(
+    n_blocks: int,
+    sub: int,
+    T: float,
+    H: float,
+    gamma: float,
+    theta: float,
+    sigma0: float,
+    rng: np.random.Generator,
+    chunk: int = 1000,
+) -> BlockObservedPath:
+    """Cont & Das Example 7: σ = σ₀e^Y, dY = −γY dt + θ dB^H, observed in blocks.
+
+    Y is Euler-stepped on all n_blocks · sub fine steps with exact fGn
+    increments (memory scales with the fine grid: ~3 GB at 27 million steps);
+    prices are then generated and summarised block by block.
+    """
+    n = n_blocks * sub
+    dt = T / n
+    inc = theta * fgn(n, H, rng)[0] * dt**H
+    y = np.concatenate([[0.0], lfilter([1.0], [1.0, -(1.0 - gamma * dt)], inc)])
+    del inc
+    ends = sigma0 * np.exp(y[::sub])
+    rv = np.empty(n_blocks)
+    means = np.empty(n_blocks)
+    for start in range(0, n_blocks, chunk):
+        nb = min(chunk, n_blocks - start)
+        vol_left = sigma0 * np.exp(y[start * sub : (start + nb) * sub])
+        rv[start : start + nb], means[start : start + nb] = _observe_blocks(vol_left, dt, sub, rng)
+    return BlockObservedPath(ends, means, rv)
+
+
+def abs_bm_blocks(
+    n_blocks: int, sub: int, T: float, rng: np.random.Generator, chunk: int = 1000
+) -> BlockObservedPath:
+    """Cont & Das Example 5: σ_t = |W_t|, W a Brownian motion from 0, observed in blocks."""
+    n = n_blocks * sub
+    dt = T / n
+    ends = np.empty(n_blocks + 1)
+    rv = np.empty(n_blocks)
+    means = np.empty(n_blocks)
+    ends[0] = 0.0
+    w_last = 0.0
+    for start in range(0, n_blocks, chunk):
+        nb = min(chunk, n_blocks - start)
+        w = w_last + np.cumsum(rng.standard_normal(nb * sub) * np.sqrt(dt))
+        vol_left = np.abs(np.concatenate([[w_last], w[:-1]]))
+        rv[start : start + nb], means[start : start + nb] = _observe_blocks(vol_left, dt, sub, rng)
+        ends[start + 1 : start + nb + 1] = np.abs(w[sub - 1 :: sub])
+        w_last = float(w[-1])
+    return BlockObservedPath(ends, means, rv)

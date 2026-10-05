@@ -8,7 +8,10 @@ definite for every H in (0, 1), so no approximation is involved.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
+import scipy.fft
 
 from exponent.domain.types import FloatArray
 
@@ -27,17 +30,29 @@ def fgn(n: int, H: float, rng: np.random.Generator, n_paths: int = 1) -> FloatAr
     """
     if not 0.0 < H < 1.0:
         raise ValueError(f"H must be in (0, 1), got {H}")
-    gamma = fgn_autocovariance(n, H)
-    c = np.concatenate([gamma, gamma[-2:0:-1]])  # first row of the 2n circulant
-    m = c.size
-    lam = np.fft.fft(c).real
-    if lam.min() < -1e-8 * lam.max():
-        raise ValueError("circulant embedding is not non-negative definite")
-    lam = np.clip(lam, 0.0, None)
+    scale = _circulant_scale(n, H)
+    m = scale.size
     z = rng.standard_normal((n_paths, m)) + 1j * rng.standard_normal((n_paths, m))
-    w = np.fft.fft(np.sqrt(lam / m) * z, axis=1)
+    z *= scale
+    w = scipy.fft.fft(z, axis=1, overwrite_x=True)
     out: FloatArray = w.real[:, :n]
     return out
+
+
+@lru_cache(maxsize=2)
+def _circulant_scale(n: int, H: float) -> FloatArray:
+    """√(λ/m) for the 2n circulant embedding. Depends only on (n, H), so it is
+    cached: at 27 million steps it is half the cost of a path."""
+    gamma = fgn_autocovariance(n, H)
+    c = np.concatenate([gamma, gamma[-2:0:-1]])  # first row of the 2n circulant (symmetric)
+    m = c.size
+    half = scipy.fft.rfft(c).real  # λ_k for k = 0..n; the circulant is symmetric, λ_k = λ_{m−k}
+    lam = np.concatenate([half, half[-2:0:-1]])
+    if lam.min() < -1e-8 * lam.max():
+        raise ValueError("circulant embedding is not non-negative definite")
+    scale: FloatArray = np.sqrt(np.clip(lam, 0.0, None) / m)
+    scale.setflags(write=False)
+    return scale
 
 
 def fbm(n: int, H: float, dt: float, rng: np.random.Generator, n_paths: int = 1) -> FloatArray:

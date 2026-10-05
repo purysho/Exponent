@@ -51,6 +51,9 @@ def cmd_m0a(args: argparse.Namespace) -> int:
         gates.append(
             m0a.gate_r2b(pl.concat([_run(a, out, args.workers), _run(b, out, args.workers)]))
         )
+    if "r2bv2" in wanted:
+        fou, absbm = m0a.r2b_v2()
+        gates.append(m0a.gate_r2b_v2(_run(fou, out, args.workers), _run(absbm, out, args.workers)))
     if "r3" in wanted:
         df = _run(m0a.r3(), out, args.workers)
         m0a.map_statuses(df).write_csv(out / "m0a-r3-statuses.csv")
@@ -73,7 +76,7 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="exponent")
     sub = p.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("m0a", help="run the M0a reproductions and check their gates")
-    m.add_argument("--only", help="comma list of r1,r1v2,r2a,r2b,r3")
+    m.add_argument("--only", help="comma list of r1,r1v2,r2a,r2b,r2bv2,r3")
     m.add_argument("--workers", type=int, default=None)
     m.add_argument("--out", default="results/m0a")
     args = p.parse_args()

@@ -17,6 +17,8 @@ import polars as pl
 from exponent.app.court import Experiment, Params, summarise
 from exponent.domain.generators.fgn import fbm
 from exponent.domain.generators.vol_models import (
+    abs_bm_blocks,
+    fou_blocks,
     fractional_ou_log_vol,
     ou_sv,
     ou_sv_blocks,
@@ -162,6 +164,77 @@ def gate_r2b(df: pl.DataFrame) -> GateResult:
         f"Ĥ(block-mean σ) {m.get('C:sigma_mean')}"
     )
     return GateResult("R2b Cont–Das Table 3 (OU-SV)", any(readings.values()), s, notes)
+
+
+# ── R2b v2: validate the locked construction (docs/m0a-gate-v2.md) ──────────
+# Locked in docs/r2b-exploration.md: 300-return blocks, horizon T = 4.
+
+R2B_V2_T = 4.0
+R2B_V2_WINDOW = 300
+R2B_V2_FOU = {  # paper §4.2, single path per H: (Ĥ(σ), Ĥ(RV)); H = 0.5 is the training model
+    0.1: (0.130, 0.190),
+    0.2: (0.215, 0.250),
+    0.3: (0.310, 0.258),
+    0.4: (0.413, 0.207),
+    0.6: (0.601, 0.087),
+    0.7: (0.678, 0.061),
+    0.8: (0.756, 0.052),
+}
+R2B_V2_ABS_BM = (0.49, 0.27)  # Example 5, K = 500: (Ĥ(σ), Ĥ(RV))
+
+
+def _sim_r2b_v2_fou(p: Params, rng: np.random.Generator) -> Mapping[str, Observation]:
+    b = fou_blocks(p["K"] ** 2, R2B_V2_WINDOW, R2B_V2_T, p["H"], 1.0, 1.0, 1.0, rng)
+    return {
+        "rv": VolProxy(b.block_rv, R2B_V2_WINDOW, "block_rv", "vol"),
+        "sigma": SpotVol(b.vol_at_block_ends),
+    }
+
+
+def _sim_r2b_v2_abs_bm(p: Params, rng: np.random.Generator) -> Mapping[str, Observation]:
+    b = abs_bm_blocks(p["K"] ** 2, R2B_V2_WINDOW, R2B_V2_T, rng)
+    return {
+        "rv": VolProxy(b.block_rv, R2B_V2_WINDOW, "block_rv", "vol"),
+        "sigma": SpotVol(b.vol_at_block_ends),
+    }
+
+
+def r2b_v2(reps: int = 100) -> tuple[Experiment, Experiment]:
+    est = "normalized-pvariation"
+    pairs = (("rv", est), ("sigma", est))
+    fou = Experiment(
+        "m0a-r2b-v2-fou",
+        tuple({"H": h, "K": 300} for h in R2B_V2_FOU),
+        reps,
+        _sim_r2b_v2_fou,
+        pairs,
+    )
+    absbm = Experiment("m0a-r2b-v2-absbm", ({"H": 0.5, "K": 500},), reps, _sim_r2b_v2_abs_bm, pairs)
+    return fou, absbm
+
+
+def gate_r2b_v2(fou: pl.DataFrame, absbm: pl.DataFrame) -> GateResult:
+    rows = []
+    for name, df in (("fOU", fou), ("|W|", absbm)):
+        s = _with_param(summarise(df), "H")
+        for h, obs, mean, sd in zip(s["H"], s["observation"], s["mean"], s["sd"], strict=True):
+            paper_sigma, paper_rv = R2B_V2_FOU[h] if name == "fOU" else R2B_V2_ABS_BM
+            paper = paper_sigma if obs == "sigma" else paper_rv
+            tol = max(0.03, 3 * sd)
+            rows.append(
+                {
+                    "model": name,
+                    "H": h,
+                    "series": obs,
+                    "paper": paper,
+                    "ours": mean,
+                    "sd": sd,
+                    "tol": tol,
+                    "pass_": abs(mean - paper) <= tol,
+                }
+            )
+    t = pl.DataFrame(rows).sort("model", "series", "H")
+    return GateResult("R2b v2 held-out validation (16 numbers)", bool(t["pass_"].all()), t)
 
 
 # ── R3: Lumor identifiability map ────────────────────────────────────────────
