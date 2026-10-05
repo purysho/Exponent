@@ -41,13 +41,29 @@ R1_TOL = 0.02
 
 
 def _sim_r1(p: Params, rng: np.random.Generator) -> Mapping[str, Observation]:
-    x = fractional_ou_log_vol(p["n"], 1.0, p["H"], 0.3, 5e-4, 0.0, rng)
+    alpha = p.get("alpha", 5e-4)  # v1 cells predate the key; their default is v1's α
+    x = fractional_ou_log_vol(p["n"], 1.0, p["H"], 0.3, alpha, 0.0, rng)
     return {"spot_log_vol": SpotLogVol(x)}
 
 
 def r1(reps: int = 200, n: int = 4000) -> Experiment:
     cells = tuple({"H": h, "n": n} for h in (0.05, 0.1, 0.2, 0.3, 0.5, 0.7))
     return Experiment("m0a-r1", cells, reps, _sim_r1, (("spot_log_vol", "structure-function"),))
+
+
+def r1_v2(reps: int = 1000, n: int = 4000) -> Experiment:
+    """docs/m0a-gate-v2.md: α = 0, so log-vol is exactly ν·fBM."""
+    cells = tuple({"H": h, "n": n, "alpha": 0.0} for h in (0.05, 0.1, 0.2, 0.3, 0.5, 0.7))
+    return Experiment("m0a-r1-v2", cells, reps, _sim_r1, (("spot_log_vol", "structure-function"),))
+
+
+def gate_r1_v2(df: pl.DataFrame) -> GateResult:
+    s = _with_param(summarise(df), "H").with_columns(
+        bias=pl.col("mean") - pl.col("H"),
+        tol=R1_TOL + 3 * pl.col("sd") / pl.col("n_ok").cast(pl.Float64).sqrt(),
+    )
+    s = s.with_columns(pass_=pl.col("bias").abs() <= pl.col("tol"))
+    return GateResult("R1 v2 oracle (structure-function, α = 0)", bool(s["pass_"].all()), s)
 
 
 def gate_r1(df: pl.DataFrame) -> GateResult:

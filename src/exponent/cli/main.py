@@ -42,6 +42,8 @@ def cmd_m0a(args: argparse.Namespace) -> int:
     gates = []
     if "r1" in wanted:
         gates.append(m0a.gate_r1(_run(m0a.r1(), out, args.workers)))
+    if "r1v2" in wanted:
+        gates.append(m0a.gate_r1_v2(_run(m0a.r1_v2(), out, args.workers)))
     if "r2a" in wanted:
         gates.append(m0a.gate_r2a(_run(m0a.r2a(), out, args.workers)))
     if "r2b" in wanted:
@@ -61,7 +63,8 @@ def cmd_m0a(args: argparse.Namespace) -> int:
             lines.append(str(g.table.drop("params", strict=False)))
         lines += ["```", *[f"- {n}" for n in g.notes], ""]
     report = "\n".join(lines)
-    (out / "report.md").write_text(report)
+    name = "report.md" if not args.only else f"report-{args.only.replace(',', '-')}.md"
+    (out / name).write_text(report)
     print(report)
     return 0 if all(g.passed for g in gates) else 1
 
@@ -70,7 +73,7 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="exponent")
     sub = p.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("m0a", help="run the M0a reproductions and check their gates")
-    m.add_argument("--only", help="comma list of r1,r2a,r2b,r3")
+    m.add_argument("--only", help="comma list of r1,r1v2,r2a,r2b,r3")
     m.add_argument("--workers", type=int, default=None)
     m.add_argument("--out", default="results/m0a")
     args = p.parse_args()
