@@ -1,0 +1,27 @@
+tape: 196,458 trades, 40 coins, 2.14 h
+zero-hash trades: 34,427 (17.5%), taker addresses: 180
+API: 320,408 labelled slice fills, 52,490 parent records, 150 addresses at the 2000-fill cap
+
+[marker]
+  zero-hash trades within each address's API coverage: 31,764; labelled as TWAP slices: 31,698 (99.8%)
+  labelled slices present in the tape: 31,531; with a non-zero hash: 0
+
+[parents in window]
+  child orders of these addresses: 25,482; TWAP-labelled: 24,271
+  TWAP parents with ≥10 slices in window: 279 → ≈ 93,731 per month at this rate (top 40 coins)
+  same-address, same-side TWAP parents overlapping in time: 61 (of 414 parent-streams)
+
+[blind reconstruction vs TWAP labels]  (pairwise, labelled children only)
+  gap ≤    1 min:   226 metaorders; precision 0.428, recall 0.851; 21 mix TWAP and non-TWAP children
+  gap ≤    5 min:   200 metaorders; precision 0.458, recall 0.998; 29 mix TWAP and non-TWAP children
+  gap ≤   15 min:   224 metaorders; precision 0.459, recall 1.000; 33 mix TWAP and non-TWAP children
+
+  TWAP parents complete in window: 83; partial, excluded from the TWAP curve: 196
+
+[naive impact: I/σ_D vs (Q/V_D)^δ, log-binned; a few hours of data, so indicative only]
+  TWAP parents, complete           n=   83  δ̂ = n/a
+  reconstructed, gap ≤ 1 min       n=  222  δ̂ = -0.00
+  reconstructed, gap ≤ 5 min       n=  196  δ̂ = -0.13
+  reconstructed, gap ≤ 15 min      n=  220  δ̂ = -0.27
+
+[parent size] executed-in-window / intended size: p10 0.01, median 0.14, p90 1.00

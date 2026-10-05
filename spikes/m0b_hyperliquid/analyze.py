@@ -297,13 +297,31 @@ def main() -> None:
     twap_groups = defaultdict(list)
     for i, tid in label.items():
         twap_groups[tid].append(i)
+
+    def complete(tid: int) -> bool:
+        """Parent started and was scheduled to finish inside the capture window."""
+        h = parents.get(tid)
+        if not h:
+            return False
+        start = h["state"]["timestamp"]
+        return start >= t0 and start + h["state"]["minutes"] * 60_000 <= t1
+
     twap_pts = [
-        p for g in twap_groups.values() if len(g) >= MIN_CHILDREN and (p := point(sorted(g)))
+        p
+        for tid, g in twap_groups.items()
+        if len(g) >= MIN_CHILDREN and complete(tid) and (p := point(sorted(g)))
     ]
+    n_partial = sum(
+        1 for tid, g in twap_groups.items() if len(g) >= MIN_CHILDREN and not complete(tid)
+    )
+    print(
+        f"\n  TWAP parents complete in window: {len(twap_pts)}; "
+        f"partial, excluded from the TWAP curve: {n_partial}"
+    )
     print(
         "\n[naive impact: I/σ_D vs (Q/V_D)^δ, log-binned; a few hours of data, so indicative only]"
     )
-    for name, pts in [("TWAP parents (labels)", twap_pts)] + [
+    for name, pts in [("TWAP parents, complete", twap_pts)] + [
         (f"reconstructed, gap ≤ {g:.0f} min", [p for grp in recs[g] if (p := point(grp))])
         for g in GAPS_MIN
     ]:
